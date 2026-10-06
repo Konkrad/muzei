@@ -321,6 +321,7 @@ class MuzeiBlurRenderer(
         private val pictures = arrayOfNulls<GLPicture>(blurKeyframes + 1)
         private var hasBitmap = false
         private var bitmapAspectRatio = 1f
+        private var saliency: SaliencyFocus? = null
         var dimAmount = 0
 
         fun load(imageLoader: ImageLoader) {
@@ -332,6 +333,7 @@ class MuzeiBlurRenderer(
                 1f
 
             dimAmount = DEFAULT_MAX_DIM
+            saliency = null
 
             destroyPictures()
 
@@ -339,6 +341,8 @@ class MuzeiBlurRenderer(
                 // Calculate image darkness to determine dim amount
                 var tempBitmap = imageLoader.decode(64)
                 val darkness = tempBitmap.darkness()
+                // Find where the subject is so we can center on it
+                saliency = if (demoMode) null else SaliencyFocus.analyze(tempBitmap)
                 dimAmount = if (demoMode)
                     DEMO_DIM
                 else
@@ -443,13 +447,25 @@ class MuzeiBlurRenderer(
             // TODO: if we know the number of home screen pages, use that number here
             val maxPanScreenWidths = min(1.8f, scaledBitmapToScreenAspectRatio)
 
+            // Shift the viewport so the most salient part of the image is centered
+            // instead of the geometric center. 0 means no shift.
+            val viewportWidth = 2f / scaledBitmapToScreenAspectRatio
+            val focusShift = if (viewportWidth < 2f) {
+                (saliency?.focusX(viewportWidth / 2f) ?: 0.5f) * 2f - 1f
+            } else {
+                0f
+            }
+
             currentViewport.apply {
                 left = interpolate(-1f, 1f,
                         interpolate(
                                 (1 - maxPanScreenWidths / scaledBitmapToScreenAspectRatio) / 2,
                                 (1 + (maxPanScreenWidths - 2) / scaledBitmapToScreenAspectRatio) / 2,
                                 normalOffsetX))
-                right = left + 2f / scaledBitmapToScreenAspectRatio
+                if (viewportWidth < 2f) {
+                    left = (left + focusShift).constrain(-1f, 1f - viewportWidth)
+                }
+                right = left + viewportWidth
                 bottom = -1f / zoom
                 top = 1f / zoom
             }
